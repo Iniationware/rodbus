@@ -17,7 +17,7 @@ pub(crate) enum Request<'a> {
     ReadDiscreteInputs(ReadBitsRange),
     ReadHoldingRegisters(ReadRegistersRange),
     ReadInputRegisters(ReadRegistersRange),
-    SendCustomBuffers(Indexed<u16>),
+    SendCustomBuffers(U16Vec),
     WriteSingleCoil(Indexed<bool>),
     WriteSingleRegister(Indexed<u16>),
     WriteMultipleCoils(WriteCoils<'a>),
@@ -127,7 +127,7 @@ impl<'a> Request<'a> {
                 writer.format_reply(header, function, &registers, level)
             }
             Request::SendCustomBuffers(request) => {
-                let result = handler.receive_custom_buffer(*request).map(|_| *request);
+                let result = handler.receive_custom_buffer(request.clone()).map(|_| Indexed {index: (0x1),value: (0xAB),});
                 write_result(function, header, writer, result, level)
             }
             Request::WriteSingleCoil(request) => {
@@ -180,8 +180,7 @@ impl<'a> Request<'a> {
                 Ok(x)
             }
             FunctionCode::SendCustomBuffers => {
-                let x =
-                    Request::SendCustomBuffers(Indexed::<u16>::parse(cursor)?);
+                let x = Request::SendCustomBuffers(U16Vec::parse(cursor)?);
                 cursor.expect_empty()?;
                 Ok(x)
             }

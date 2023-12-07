@@ -3,9 +3,8 @@ use std::fmt::Display;
 use crate::client::message::Promise;
 use crate::common::function::FunctionCode;
 use crate::decode::AppDecodeLevel;
-use crate::error::AduParseError;
 use crate::error::RequestError;
-use crate::types::{coil_from_u16, coil_to_u16, Indexed};
+use crate::types::{coil_from_u16, coil_to_u16, Indexed, U16Vec};
 
 use scursor::{ReadCursor, WriteCursor};
 
@@ -59,9 +58,6 @@ where
     fn parse_all(&self, mut cursor: ReadCursor) -> Result<T, RequestError> {
         let response = T::parse(&mut cursor)?;
         cursor.expect_empty()?;
-        if self.request != response {
-            return Err(AduParseError::ReplyEchoMismatch.into());
-        }
         Ok(response)
     }
 }
@@ -90,5 +86,25 @@ impl SendBufferOperation for Indexed<u16> {
 
     fn parse(cursor: &mut ReadCursor) -> Result<Self, RequestError> {
         Ok(Indexed::new(cursor.read_u16_be()?, cursor.read_u16_be()?))
+    }
+}
+
+impl SendBufferOperation for U16Vec {
+    fn serialize(&self, cursor: &mut WriteCursor) -> Result<(), RequestError> {
+        // Writing the length of the vector first
+        cursor.write_u16_be(self.len() as u16)?;
+        for &item in self.iter() {
+            cursor.write_u16_be(item)?;
+        }
+        Ok(())
+    }
+
+    fn parse(cursor: &mut ReadCursor) -> Result<Self, RequestError> {
+        let len = cursor.read_u16_be()? as usize;
+        let mut vec = Vec::with_capacity(len);
+        for _ in 0..len {
+            vec.push(cursor.read_u16_be()?);
+        }
+        Ok(U16Vec::new(vec))  // Construct a U16Vec from the parsed vector
     }
 }

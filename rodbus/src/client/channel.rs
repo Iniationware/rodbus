@@ -7,7 +7,7 @@ use crate::client::requests::write_multiple::{MultipleWriteRequest, WriteMultipl
 use crate::client::requests::write_single::SingleWrite;
 use crate::client::requests::send_buffer::SendBuffer;
 use crate::error::*;
-use crate::types::{AddressRange, BitIterator, Indexed, RegisterIterator, UnitId};
+use crate::types::{AddressRange, BitIterator, Indexed, RegisterIterator, UnitId, U16Vec};
 use crate::DecodeLevel;
 
 /// Async channel used to make requests
@@ -168,9 +168,9 @@ impl Channel {
     pub async fn send_custom_buffer(
         &mut self,
         param: RequestParam,
-        request: Indexed<u16>,
-    ) -> Result<Indexed<u16>, RequestError> {
-        let (tx, rx) = tokio::sync::oneshot::channel::<Result<Indexed<u16>, RequestError>>();
+        request: U16Vec,
+    ) -> Result<U16Vec, RequestError> {
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<U16Vec, RequestError>>();
         let request = wrap(
             param,
             RequestDetails::SendCustomBuffers(SendBuffer::new(request, Promise::channel(tx))),

@@ -43,8 +43,8 @@ pub trait RequestHandler: Send + 'static {
         Err(ExceptionCode::IllegalFunction)
     }
 
-    /// Read single custom buffer or return an ExceptionCode
-    fn receive_custom_buffer(&self, _value: Indexed<u16>) -> Result<u16, ExceptionCode> {
+    /// Send custom buffer or return an ExceptionCode
+    fn receive_custom_buffer(&self, _value: U16Vec) -> Result<(), ExceptionCode> {
         Err(ExceptionCode::IllegalFunction)
     }
 
@@ -183,11 +183,7 @@ pub trait AuthorizationHandler: Send + Sync + 'static {
     }
 
     /// Authorize a Read Custom Buffer request
-    fn receive_custom_buffer(
-        &self,
-        _value: Indexed<u16>,
-        _role: &str,
-    ) -> Authorization {
+    fn receive_custom_buffer(&self, _value: U16Vec, _role: &str) -> Authorization {
         Authorization::Deny
     }
     /// Authorize a Read Holding Registers request

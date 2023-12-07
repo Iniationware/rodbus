@@ -162,6 +162,20 @@ where
     }
 }
 
+fn print_buffer_result(result: Result<U16Vec, RequestError>) {
+    match result {
+        Ok(buffer) => {
+            println!("Received data: {}", buffer);
+        }
+        Err(RequestError::Exception(exception)) => {
+            println!("Modbus exception: {}", exception);
+        }
+        Err(err) => {
+            println!("Read error: {}", err);
+        }
+    }
+}
+
 fn print_write_result<T>(result: Result<T, RequestError>) {
     match result {
         Ok(_) => {
@@ -272,13 +286,10 @@ async fn run_channel(mut channel: Channel) -> Result<(), Box<dyn std::error::Err
                 let result = channel
                     .send_custom_buffer(
                         params,
-                        Indexed {
-                            index: (0x1),
-                            value: (0xAB),
-                        },
+                        U16Vec::new(vec![0xAB, 0xCD, 0xEF, 0x12])
                     )
                     .await;
-                print_write_result(result);
+                print_buffer_result(result);
                 // ANCHOR_END: write_multiple_registers
             }
             _ => println!("unknown command"),

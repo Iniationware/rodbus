@@ -78,15 +78,14 @@ impl RequestHandler for SimpleHandler {
         }
     }
 
-    fn receive_custom_buffer(&self, value: Indexed<u16>) -> Result<u16, ExceptionCode> {
+    fn receive_custom_buffer(&self, value: U16Vec) -> Result<(), ExceptionCode> {
         tracing::info!(
-            "receive custom buffer, index: {} value: {}",
-            value.index,
-            value.value
+            "receive custom buffer, {}",
+            value,
         );
 
-        if value.value == 0xAB {
-            Ok(0xCD)
+        if value.len() != 0 {
+            Ok(())
         } else {
             Err(ExceptionCode::IllegalFunction)
         }

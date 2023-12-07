@@ -80,6 +80,46 @@ pub struct RegisterIterator<'a> {
     pos: u16,
 }
 
+/// A wrapper struct around `Vec<u16>`.
+///
+/// `U16Vec` provides a convenient way to work with vectors of `u16`
+/// while implementing additional traits like `std::fmt::Display` and
+/// `SendBufferOperation`. It's used in scenarios where we need to serialize
+/// and parse sequences of `u16` values.
+
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct U16Vec(Vec<u16>);
+
+impl U16Vec {
+    /// Add a constructor for convenience
+    pub fn new(vec: Vec<u16>) -> Self {
+        U16Vec(vec)
+    }
+
+    /// Helper method to get the length of the inner vector
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Helper method to iterate over the inner vector
+    pub fn iter(&self) -> std::slice::Iter<u16> {
+        self.0.iter()
+    }
+}
+
+impl std::fmt::Display for U16Vec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for (i, val) in self.0.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", val)?;
+        }
+        write!(f, "]")
+    }
+}
 pub(crate) struct RegisterIteratorDisplay<'a> {
     iterator: RegisterIterator<'a>,
     level: AppDecodeLevel,

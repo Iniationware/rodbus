@@ -12,7 +12,7 @@ use crate::client::requests::write_multiple::MultipleWriteRequest;
 use crate::client::requests::write_single::SingleWrite;
 use crate::client::requests::send_buffer::SendBuffer;
 use crate::common::traits::Serialize;
-use crate::types::{Indexed, UnitId};
+use crate::types::{Indexed, UnitId, U16Vec};
 
 use scursor::{ReadCursor, WriteCursor};
 use std::time::Duration;
@@ -36,13 +36,13 @@ pub(crate) struct Request {
     pub(crate) details: RequestDetails,
 }
 
-// possible requests that can be sent through the channel
+// possible requests that can be sent through the channel``
 pub(crate) enum RequestDetails {
     ReadCoils(ReadBits),
     ReadDiscreteInputs(ReadBits),
     ReadHoldingRegisters(ReadRegisters),
     ReadInputRegisters(ReadRegisters),
-    SendCustomBuffers(SendBuffer<Indexed<u16>>),
+    SendCustomBuffers(SendBuffer<U16Vec>),
     WriteSingleCoil(SingleWrite<Indexed<bool>>),
     WriteSingleRegister(SingleWrite<Indexed<u16>>),
     WriteMultipleCoils(MultipleWriteRequest<bool>),
@@ -226,7 +226,7 @@ impl std::fmt::Display for RequestDetailsDisplay<'_> {
                     write!(f, "{}", details.request.get())?;
                 }
                 RequestDetails::SendCustomBuffers(details) => {
-                    write!(f, "{}", details.request)?;
+                    write!(f, "{:?}", details.request)?;
                 }
                 RequestDetails::WriteSingleCoil(details) => {
                     write!(f, "{}", details.request)?;
