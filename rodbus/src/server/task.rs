@@ -143,13 +143,55 @@ where
     async fn handle_frame(&mut self, io: &mut PhysLayer, frame: Frame) -> Result<(), RequestError> {
         let mut cursor = ReadCursor::new(frame.payload());
 
-        let function = match cursor.read_u8() {
+        let function: FunctionCode = match cursor.read_u8() {
             Err(_) => {
                 tracing::warn!("received an empty frame");
                 return Ok(());
             }
             Ok(value) => match FunctionCode::get(value) {
-                Some(x) => x,
+                Some(x) => {
+                    if x != FunctionCode::SendMutableFC {
+                        x
+                    } else {
+                        // create a new cursor from the rest of the buffer (underlying request)
+                        cursor = ReadCursor::new(cursor.read_all());
+                        // check the function code of the underlying request and return it
+                        match cursor.read_u8() {
+                            Err(_) => {
+                                tracing::warn!("received an empty frame");
+                                return Ok(());
+                            }
+                            Ok(value) => match FunctionCode::get(value) {
+                                Some(x) => {
+                                    if x != FunctionCode::SendMutableFC {
+                                        x
+                                    } else {
+                                        tracing::warn!("received a nested mutable FC, but they are not supported");
+                                        return self
+                                            .reply_with_error_generic(
+                                                io,
+                                                frame.header,
+                                                FunctionField::unknown(value),
+                                                ExceptionCode::IllegalFunction,
+                                            )
+                                            .await;
+                                    }
+                                }
+                                None => {
+                                    tracing::warn!("received unknown function code: {}", value);
+                                    return self
+                                        .reply_with_error_generic(
+                                            io,
+                                            frame.header,
+                                            FunctionField::unknown(value),
+                                            ExceptionCode::IllegalFunction,
+                                        )
+                                        .await;
+                                }
+                            },
+                        }
+                    }
+                }
                 None => {
                     tracing::warn!("received unknown function code: {}", value);
                     return self
@@ -190,7 +232,7 @@ where
                 self.reply_with_error(
                     io,
                     frame.header,
-                    request.get_function(),
+                    request.get_function().unwrap(),
                     ExceptionCode::IllegalFunction,
                 )
                 .await?;
@@ -256,7 +298,6 @@ impl AuthorizationType {
                 handler.read_holding_registers(unit_id, x.inner, role)
             }
             Request::ReadInputRegisters(x) => handler.read_input_registers(unit_id, x.inner, role),
-            Request::SendCustomBuffers(x) => handler.receive_custom_buffer(*x, role),
             Request::WriteSingleCoil(x) => handler.write_single_coil(unit_id, x.index, role),
             Request::WriteSingleRegister(x) => {
                 handler.write_single_register(unit_id, x.index, role)
@@ -265,7 +306,13 @@ impl AuthorizationType {
             Request::WriteMultipleRegisters(x) => {
                 handler.write_multiple_registers(unit_id, x.range, role)
             }
-            Request::WriteCustomFunctionCode(x) => handler.write_custom_function_code(*x, role),
+            Request::SendCustomFunctionCode(x) => match x.function_code() {
+                0x41 | 0x42 | 0x43 | 0x44 | 0x45 | 0x46 | 0x47 | 0x48 | 0x64 | 0x65 | 0x66
+                | 0x67 | 0x68 | 0x69 | 0x6A | 0x6B | 0x6C | 0x6D | 0x6E => {
+                    handler.process_cfc(unit_id, x.clone(), role)
+                }
+                _ => Authorization::Deny,
+            },
         }
     }
 

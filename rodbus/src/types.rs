@@ -85,11 +85,20 @@ pub(crate) struct RegisterIteratorDisplay<'a> {
     level: AppDecodeLevel,
 }
 
+/// Mutable Function Code
+#[derive(Clone, Debug, PartialEq)]
+pub struct MutableFunctionCode {
+    fc: u8,
+    data: Vec<u8>,
+}
+
 /// Custom Function Code
-#[derive(Clone, Debug, Copy, PartialEq)]
-pub struct CustomFunctionCode {
-    len: usize,
-    data: [u16; 4],
+#[derive(Clone, Debug, PartialEq)]
+pub struct CustomFunctionCode<T> {
+    fc: u8,
+    byte_count_in: u8,
+    byte_count_out: u8,
+    data: Vec<T>,
 }
 
 impl std::fmt::Display for UnitId {
@@ -374,10 +383,56 @@ impl Default for UnitId {
     }
 }
 
-impl CustomFunctionCode {
+impl MutableFunctionCode {
+    /// Create a new mutable function code
+    pub fn new(fc: u8, data: Vec<u8>) -> Self {
+        Self { fc, data }
+    }
+
+    /// Get the function code
+    pub fn function_code(&self) -> u8 {
+        self.fc
+    }
+
+    /// Get the data
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl std::fmt::Display for MutableFunctionCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fc: {:#X}, ", self.fc)?;
+        write!(f, "data: [")?;
+        for (i, val) in self.data.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{:#X}", val)?;
+        }
+        write!(f, "]")
+    }
+}
+
+impl CustomFunctionCode<u16> {
     /// Create a new custom function code
-    pub fn new(len: usize, data: [u16; 4]) -> Self {
-        Self { len, data }
+    pub fn new(fc: u8, byte_count_in: u8, byte_count_out: u8, data: Vec<u16>) -> Self {
+        Self { fc, byte_count_in, byte_count_out, data }
+    }
+
+    /// Get the function code
+    pub fn function_code(&self) -> u8 {
+        self.fc
+    }
+
+    /// Get the function code
+    pub fn byte_count_in(&self) -> u8 {
+        self.byte_count_in
+    }
+
+    /// Get the function code
+    pub fn byte_count_out(&self) -> u8 {
+        self.byte_count_out
     }
 
     /// Get the length of the underlying vector
@@ -391,14 +446,25 @@ impl CustomFunctionCode {
     }
 }
 
-impl std::fmt::Display for CustomFunctionCode {
+impl std::fmt::Display for CustomFunctionCode<u16> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fc: {:#X}, ", self.fc)?;
+        write!(f, "bytes in: {}, ", self.byte_count_in)?;
+        write!(f, "bytes out: {}, ", self.byte_count_out)?;
         write!(f, "values: [")?;
         for (i, val) in self.data.iter().enumerate() {
             if i != 0 {
                 write!(f, ", ")?;
             }
             write!(f, "{}", val)?;
+        }
+        write!(f, "], ")?;
+        write!(f, "hex: [")?;
+        for (i, val) in self.data.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{:#X}", val)?;
         }
         write!(f, "]")
     }
@@ -476,4 +542,5 @@ mod tests {
         assert!(UnitId::new(255).is_rtu_reserved());
         assert!(!UnitId::new(41).is_rtu_reserved());
     }
+
 }

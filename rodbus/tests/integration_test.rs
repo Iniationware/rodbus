@@ -13,7 +13,6 @@ struct Handler {
     pub discrete_inputs: [bool; 10],
     pub holding_registers: [u16; 10],
     pub input_registers: [u16; 10],
-    pub custom_function_code: [u16; 5],
 }
 
 impl Handler {
@@ -23,7 +22,6 @@ impl Handler {
             discrete_inputs: [false; 10],
             holding_registers: [0; 10],
             input_registers: [0; 10],
-            custom_function_code: [0; 5],
         }
     }
 }
@@ -97,16 +95,45 @@ impl RequestHandler for Handler {
         Ok(())
     }
 
-    fn write_custom_function_code(&mut self, values: CustomFunctionCode) -> Result<(), ExceptionCode> {
-        for (i, &value) in values.iter().enumerate() {
-            match self.custom_function_code.get_mut(i) {
-                Some(c) => *c = value,
-                None => return Err(ExceptionCode::IllegalDataAddress),
-            }
+    fn process_cfc(&mut self, values: CustomFunctionCode<u16>) -> Result<CustomFunctionCode<u16>, ExceptionCode> {
+        tracing::info!("processing custom function code: {}, data: {:?}", values.function_code(), values.iter());
+        match values.function_code() {
+            0x41 => {
+                // increment each CFC value by 1 and return the result
+                // Create a new vector to hold the incremented values
+                let incremented_data = values.iter().map(|&val| val + 1).collect();
+
+                // Return a new CustomFunctionCode with the incremented data
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), incremented_data))
+            },
+            0x42 => {
+                // add a new value to the buffer and return the result
+                // Create a new vector to hold the incremented values
+                let extended_data = {
+                    let mut extended_data = values.iter().map(|val| *val).collect::<Vec<u16>>();
+                    extended_data.push(0xC0DE);
+                    extended_data
+                };
+
+                // Return a new CustomFunctionCode with the incremented data
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), extended_data))
+            },
+            0x43 => {
+                // remove the first value from the buffer and return the result
+                // Create a new vector to hold the incremented values
+                let truncated_data = {
+                    let mut truncated_data = values.iter().map(|val| *val).collect::<Vec<u16>>();
+                    truncated_data.pop();
+                    truncated_data
+                };
+
+                // Return a new CustomFunctionCode with the incremented data
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), truncated_data))
+            },
+            _ => Err(ExceptionCode::IllegalFunction),
         }
-        Ok(())  
     }
-    }
+}
 
 async fn test_requests_and_responses() {
     let handler = Handler::new().wrap();
@@ -234,13 +261,89 @@ async fn test_requests_and_responses() {
             Indexed::new(2, 0x0506)
         ]
     );
+    // ANCHOR: custom_function_code
+    // Test the implemented valid test handlers 65, 66, 67
     assert_eq!(
-        channel
-            .write_custom_function_code(params, CustomFunctionCode::new(0x04, [0xC0, 0xDE, 0xCA, 0xFE]))
-            .await
-            .unwrap(),
-        CustomFunctionCode::new(4, [0xC0, 0xDE, 0xCA, 0xFE])
+        channel.send_custom_function_code(params, CustomFunctionCode::new(0x41, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+        Ok(CustomFunctionCode::new(0x41, 4, 4, vec![0xC0DF, 0xCAFF, 0xC0DF, 0xCAFF]))
     );
+    assert_eq!(
+        channel.send_custom_function_code(params, CustomFunctionCode::new(0x42, 4, 5, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+        Ok(CustomFunctionCode::new(0x42, 4, 5, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE, 0xC0DE]))
+    );
+    assert_eq!(
+        channel.send_custom_function_code(params, CustomFunctionCode::new(0x43, 4, 3, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+        Ok(CustomFunctionCode::new(0x43, 4, 3, vec![0xC0DE, 0xCAFE, 0xC0DE]))
+    );
+    // Test the unimplemented valid handlers from 68 to 72
+    for i in 68..73 {
+        assert_eq!(
+            channel.send_custom_function_code(params, CustomFunctionCode::new(i, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+            Err(rodbus::ExceptionCode::IllegalFunction.into())
+        );
+    }
+    // Test the invalid handlers from 73 to 99
+    for i in 72..101 {
+        assert_eq!(
+            channel.send_custom_function_code(params, CustomFunctionCode::new(i, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+            Err(rodbus::ExceptionCode::IllegalFunction.into())
+        );
+    }
+    // Test the unimplemented valid handlers from 100 to 110
+    for i in 100..111 {
+        assert_eq!(
+            channel.send_custom_function_code(params, CustomFunctionCode::new(i, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+            Err(rodbus::ExceptionCode::IllegalFunction.into())
+        );
+    }
+    // Test the invalid CFC handlers from 111 to 255
+    for i in 110..=255 {
+        assert_eq!(
+            channel.send_custom_function_code(params, CustomFunctionCode::new(i, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
+            Err(rodbus::ExceptionCode::IllegalFunction.into())
+        );
+    }
+    // ANCHOR_END: custom_function_code
+
+    // ANCHOR: mutable_function_code
+    // Test a nested mutable FC (not implemented)
+    assert_eq!(
+        channel.send_mutable_function_code(params, rodbus::MutableFunctionCode::new(0, vec![0xC0, 0xDE])).await,
+        Err(RequestError::BadResponse(AduParseError::UnknownResponseFunction(128, 0, 128).into()))
+    );
+
+    // Test the implemented FCs 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 15, 16, 17, 20, 21, 22, 23, 24
+    let fcs: [u8; 18] = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 15, 16, 17, 20, 21, 22, 23, 24];
+    for &fc in fcs.iter() {
+        assert_eq!(
+            channel.send_mutable_function_code(params, rodbus::MutableFunctionCode::new(fc, vec![0xC0, 0xDE])).await,
+            Err(RequestError::BadResponse(AduParseError::UnknownResponseFunction(fc+128, 0, 128).into()))
+        );
+    }
+
+    // Test the unimplemented FCs 9, 10, 13, 14, 18, 19
+    let fcs: [u8; 6] = [9, 10, 13, 14, 18, 19];
+    for &fc in fcs.iter() {
+        assert_eq!(
+            channel.send_mutable_function_code(params, rodbus::MutableFunctionCode::new(fc, vec![0xC0, 0xDE])).await,
+            Err(RequestError::BadResponse(AduParseError::UnknownResponseFunction(fc+128, 0, 128).into()))
+        );
+    }
+
+    // Test the unimplemented FCs from 25 to 255
+    for i in 25..128 {
+        assert_eq!(
+            channel.send_mutable_function_code(params, rodbus::MutableFunctionCode::new(i, vec![0xC0, 0xDE])).await,
+            Err(RequestError::BadResponse(AduParseError::UnknownResponseFunction(i+128, 0, 128).into()))
+        );
+    }
+    for i in 128..=255 {
+        assert_eq!(
+            channel.send_mutable_function_code(params, rodbus::MutableFunctionCode::new(i, vec![0xC0, 0xDE])).await,
+            Err(RequestError::BadResponse(AduParseError::UnknownResponseFunction(i, 0, 128).into()))
+        );
+    }
+    // ANCHOR_END: mutable_function_code
 }
 
 #[test]

@@ -10,10 +10,10 @@ use crate::client::requests::read_bits::ReadBits;
 use crate::client::requests::read_registers::ReadRegisters;
 use crate::client::requests::write_multiple::MultipleWriteRequest;
 use crate::client::requests::write_single::SingleWrite;
-use crate::client::requests::send_buffer::SendBuffer;
-use crate::client::requests::write_custom_fc::WriteCustomFunctionCode;
+use crate::client::requests::send_custom_fc::CustomFCRequest;
+use crate::client::requests::send_mutable_fc::SendMutableFC;
 use crate::common::traits::Serialize;
-use crate::types::{Indexed, UnitId, CustomFunctionCode};
+use crate::types::{Indexed, UnitId, CustomFunctionCode, MutableFunctionCode};
 
 use scursor::{ReadCursor, WriteCursor};
 use std::time::Duration;
@@ -43,12 +43,12 @@ pub(crate) enum RequestDetails {
     ReadDiscreteInputs(ReadBits),
     ReadHoldingRegisters(ReadRegisters),
     ReadInputRegisters(ReadRegisters),
-    SendCustomBuffers(SendBuffer<Indexed<u16>>),
     WriteSingleCoil(SingleWrite<Indexed<bool>>),
     WriteSingleRegister(SingleWrite<Indexed<u16>>),
     WriteMultipleCoils(MultipleWriteRequest<bool>),
     WriteMultipleRegisters(MultipleWriteRequest<u16>),
-    WriteCustomFunctionCode(WriteCustomFunctionCode<CustomFunctionCode>),
+    SendCustomFunctionCode(CustomFCRequest<CustomFunctionCode<u16>>),
+    SendMutableFunctionCode(SendMutableFC<MutableFunctionCode>),
 }
 
 impl Request {
@@ -65,7 +65,7 @@ impl Request {
         payload: &[u8],
         decode: AppDecodeLevel,
     ) -> Result<(), RequestError> {
-        let expected_function = self.details.function();
+        let mut expected_function = self.details.function()?;
         let mut cursor = ReadCursor::new(payload);
         let function = match cursor.read_u8() {
             Ok(x) => x,
@@ -74,6 +74,24 @@ impl Request {
                 return Err(err.into());
             }
         };
+
+        if expected_function == FunctionCode::SendMutableFC {
+            // if the response is wrapped, authorize it
+            expected_function = match FunctionCode::get(function) {
+                Some(fc) => {
+                    fc
+                }
+                None => {
+                    tracing::warn!("received unknown function code: {}", function);
+                    //return Err(Self::get_error_for(function, expected_function, cursor));
+                    return Err(RequestError::BadResponse(AduParseError::UnknownResponseFunction(
+                        function,
+                        expected_function.get_value(),
+                        expected_function.as_error(),
+                    )));
+                }
+            };
+        }
 
         if function != expected_function.get_value() {
             return Err(Self::get_error_for(function, expected_function, cursor));
@@ -123,18 +141,51 @@ impl Request {
 }
 
 impl RequestDetails {
-    pub(crate) fn function(&self) -> FunctionCode {
+    pub(crate) fn function(&self) -> Result<FunctionCode, ExceptionCode> {
         match self {
-            RequestDetails::ReadCoils(_) => FunctionCode::ReadCoils,
-            RequestDetails::ReadDiscreteInputs(_) => FunctionCode::ReadDiscreteInputs,
-            RequestDetails::ReadHoldingRegisters(_) => FunctionCode::ReadHoldingRegisters,
-            RequestDetails::ReadInputRegisters(_) => FunctionCode::ReadInputRegisters,
-            RequestDetails::SendCustomBuffers(_) => FunctionCode::SendCustomBuffers,
-            RequestDetails::WriteSingleCoil(_) => FunctionCode::WriteSingleCoil,
-            RequestDetails::WriteSingleRegister(_) => FunctionCode::WriteSingleRegister,
-            RequestDetails::WriteMultipleCoils(_) => FunctionCode::WriteMultipleCoils,
-            RequestDetails::WriteMultipleRegisters(_) => FunctionCode::WriteMultipleRegisters,
-            RequestDetails::WriteCustomFunctionCode(_) => FunctionCode::WriteCustomFunctionCode,
+            RequestDetails::ReadCoils(_) => Ok(FunctionCode::ReadCoils),
+            RequestDetails::ReadDiscreteInputs(_) => Ok(FunctionCode::ReadDiscreteInputs),
+            RequestDetails::ReadHoldingRegisters(_) => Ok(FunctionCode::ReadHoldingRegisters),
+            RequestDetails::ReadInputRegisters(_) => Ok(FunctionCode::ReadInputRegisters),
+            RequestDetails::WriteSingleCoil(_) => Ok(FunctionCode::WriteSingleCoil),
+            RequestDetails::WriteSingleRegister(_) => Ok(FunctionCode::WriteSingleRegister),
+            RequestDetails::WriteMultipleCoils(_) => Ok(FunctionCode::WriteMultipleCoils),
+            RequestDetails::WriteMultipleRegisters(_) => Ok(FunctionCode::WriteMultipleRegisters),
+            RequestDetails::SendCustomFunctionCode(x) => {
+                match x.request.function_code() {
+                    // Standard FCs
+                    0x01 => Ok(FunctionCode::ReadCoils),
+                    0x02 => Ok(FunctionCode::ReadDiscreteInputs),
+                    0x03 => Ok(FunctionCode::ReadHoldingRegisters),
+                    0x04 => Ok(FunctionCode::ReadInputRegisters),
+                    0x05 => Ok(FunctionCode::WriteSingleCoil),
+                    0x06 => Ok(FunctionCode::WriteSingleRegister),
+                    0x0F => Ok(FunctionCode::WriteMultipleCoils),
+                    0x10 => Ok(FunctionCode::WriteMultipleRegisters),
+                    // Custom FCs
+                    0x41 => Ok(FunctionCode::SendCFC65),
+                    0x42 => Ok(FunctionCode::SendCFC66),
+                    0x43 => Ok(FunctionCode::SendCFC67),
+                    0x44 => Ok(FunctionCode::SendCFC68),
+                    0x45 => Ok(FunctionCode::SendCFC69),
+                    0x46 => Ok(FunctionCode::SendCFC70),
+                    0x47 => Ok(FunctionCode::SendCFC71),
+                    0x48 => Ok(FunctionCode::SendCFC72),
+                    0x64 => Ok(FunctionCode::SendCFC100),
+                    0x65 => Ok(FunctionCode::SendCFC101),
+                    0x66 => Ok(FunctionCode::SendCFC102),
+                    0x67 => Ok(FunctionCode::SendCFC103),
+                    0x68 => Ok(FunctionCode::SendCFC104),
+                    0x69 => Ok(FunctionCode::SendCFC105),
+                    0x6A => Ok(FunctionCode::SendCFC106),
+                    0x6B => Ok(FunctionCode::SendCFC107),
+                    0x6C => Ok(FunctionCode::SendCFC108),
+                    0x6D => Ok(FunctionCode::SendCFC109),
+                    0x6E => Ok(FunctionCode::SendCFC110),
+                    _ => Err(ExceptionCode::IllegalFunction),
+                }
+            },
+            RequestDetails::SendMutableFunctionCode(_) => Ok(FunctionCode::SendMutableFC),
         }
     }
 
@@ -144,12 +195,12 @@ impl RequestDetails {
             RequestDetails::ReadDiscreteInputs(x) => x.failure(err),
             RequestDetails::ReadHoldingRegisters(x) => x.failure(err),
             RequestDetails::ReadInputRegisters(x) => x.failure(err),
-            RequestDetails::SendCustomBuffers(x) => x.failure(err),
             RequestDetails::WriteSingleCoil(x) => x.failure(err),
             RequestDetails::WriteSingleRegister(x) => x.failure(err),
             RequestDetails::WriteMultipleCoils(x) => x.failure(err),
             RequestDetails::WriteMultipleRegisters(x) => x.failure(err),
-            RequestDetails::WriteCustomFunctionCode(x) => x.failure(err),
+            RequestDetails::SendCustomFunctionCode(x) => x.failure(err),
+            RequestDetails::SendMutableFunctionCode(x) => x.failure(err),
         }
     }
 
@@ -158,20 +209,22 @@ impl RequestDetails {
         cursor: ReadCursor,
         decode: AppDecodeLevel,
     ) -> Result<(), RequestError> {
-        let function = self.function();
+        let function = self.function()?;
         match self {
             RequestDetails::ReadCoils(x) => x.handle_response(cursor, function, decode),
             RequestDetails::ReadDiscreteInputs(x) => x.handle_response(cursor, function, decode),
             RequestDetails::ReadHoldingRegisters(x) => x.handle_response(cursor, function, decode),
             RequestDetails::ReadInputRegisters(x) => x.handle_response(cursor, function, decode),
-            RequestDetails::SendCustomBuffers(x) => x.handle_response(cursor, function, decode),
             RequestDetails::WriteSingleCoil(x) => x.handle_response(cursor, function, decode),
             RequestDetails::WriteSingleRegister(x) => x.handle_response(cursor, function, decode),
             RequestDetails::WriteMultipleCoils(x) => x.handle_response(cursor, function, decode),
             RequestDetails::WriteMultipleRegisters(x) => {
                 x.handle_response(cursor, function, decode)
             },
-            RequestDetails::WriteCustomFunctionCode(x) => {
+            RequestDetails::SendCustomFunctionCode(x) => {
+                x.handle_response(cursor, function, decode)
+            }
+            RequestDetails::SendMutableFunctionCode(x) => {
                 x.handle_response(cursor, function, decode)
             }
         }
@@ -185,12 +238,12 @@ impl Serialize for RequestDetails {
             RequestDetails::ReadDiscreteInputs(x) => x.serialize(cursor),
             RequestDetails::ReadHoldingRegisters(x) => x.serialize(cursor),
             RequestDetails::ReadInputRegisters(x) => x.serialize(cursor),
-            RequestDetails::SendCustomBuffers(x) => x.serialize(cursor),
             RequestDetails::WriteSingleCoil(x) => x.serialize(cursor),
             RequestDetails::WriteSingleRegister(x) => x.serialize(cursor),
             RequestDetails::WriteMultipleCoils(x) => x.serialize(cursor),
             RequestDetails::WriteMultipleRegisters(x) => x.serialize(cursor),
-            RequestDetails::WriteCustomFunctionCode(x) => x.serialize(cursor),
+            RequestDetails::SendCustomFunctionCode(x) => x.serialize(cursor),
+            RequestDetails::SendMutableFunctionCode(x) => x.serialize(cursor),
         }
     }
 }
@@ -233,9 +286,6 @@ impl std::fmt::Display for RequestDetailsDisplay<'_> {
                 RequestDetails::ReadInputRegisters(details) => {
                     write!(f, "{}", details.request.get())?;
                 }
-                RequestDetails::SendCustomBuffers(details) => {
-                    write!(f, "{}", details.request)?;
-                }
                 RequestDetails::WriteSingleCoil(details) => {
                     write!(f, "{}", details.request)?;
                 }
@@ -258,7 +308,10 @@ impl std::fmt::Display for RequestDetailsDisplay<'_> {
                         }
                     }
                 }
-                RequestDetails::WriteCustomFunctionCode(details) => {
+                RequestDetails::SendCustomFunctionCode(details) => {
+                    write!(f, "{}", details.request)?;
+                }
+                RequestDetails::SendMutableFunctionCode(details) => {
                     write!(f, "{}", details.request)?;
                 }
             }

@@ -78,6 +78,181 @@ impl RequestHandler for SimpleHandler {
         }
     }
 
+    fn process_cfc(&mut self, values: CustomFunctionCode<u16>) -> Result<CustomFunctionCode<u16>, ExceptionCode> {
+        tracing::info!("processing custom function code: {}", values.function_code());
+        match values.function_code() {
+            0x01 => {
+                if values.len() != 2 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let start = *values.iter().next().unwrap();
+                let count = *values.iter().next().unwrap();
+
+                // read coils
+                let coil_values = self.coils_as_mut().get(start as usize..start as usize + count as usize).unwrap().to_vec();
+                let result = coil_values.iter().map(|&val| val as u16).collect();
+
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), result))
+            },
+            0x02 => {
+                if values.len() != 2 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let start = *values.iter().next().unwrap();
+                let count = *values.iter().next().unwrap();
+
+                // read discrete inputs
+                let discrete_input_values = self.discrete_inputs_as_mut().get(start as usize..start as usize + count as usize).unwrap().to_vec();
+                let result = discrete_input_values.iter().map(|&val| val as u16).collect();
+
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), result))
+            },
+            0x03 => {
+                if values.len() != 2 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let start = *values.iter().next().unwrap();
+                let count = *values.iter().next().unwrap();
+
+                // read holding registers
+                let result = self.holding_registers_as_mut().get(start as usize..start as usize + count as usize).unwrap().to_vec();
+
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), result))
+            },
+            0x04 => {
+                if values.len() != 2 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let start = *values.iter().next().unwrap();
+                let count = *values.iter().next().unwrap();
+
+                // read input registers
+                let result = self.input_registers_as_mut().get(start as usize..start as usize + count as usize).unwrap().to_vec();
+
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), result))
+            },
+            0x05 => {
+                if values.len() != 2 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let address = *values.iter().next().unwrap();
+                let value = *values.iter().next().unwrap() != 0;
+
+                // write single coil
+                let result = self.write_single_coil(Indexed::new(address, value));
+
+                match result {
+                    Ok(_) => Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), vec![address, value as u16])),
+                    Err(exception) => Err(exception),
+                }
+            },
+            0x06 => {
+                if values.len() != 2 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+                let address = *values.iter().next().unwrap();
+                let value = *values.iter().next().unwrap();
+
+                // write single register
+                let result = self.write_single_register(Indexed::new(address, value));
+
+                match result {
+                    Ok(_) => Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), vec![address, value])),
+                    Err(exception) => Err(exception),
+                }
+            },
+            0x0F => {
+                if values.len() < 5 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let start = *values.iter().next().unwrap();
+                let count = *values.iter().next().unwrap();
+                let mut iterator = values.iter().skip(2);
+                let mut coils = vec![];
+                for _ in 0..count {
+                    coils.push(*iterator.next().unwrap() != 0);
+                }
+                
+                // write multiple coils
+                /*
+                let range = AddressRange::try_from(start, count).unwrap();
+                let result = self.write_multiple_coils(WriteCoils::new(range, coils.into_iter()));
+                
+                match result {
+                    Ok(_) => Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), vec![start, count])),
+                    Err(exception) => Err(exception),
+                }
+                */
+
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), vec![start, count]))
+            },
+            0x10 => {
+                if values.len() < 5 {
+                    return Err(ExceptionCode::IllegalDataValue);
+                }
+
+                let start = *values.iter().next().unwrap();
+                let count = *values.iter().next().unwrap();
+                let mut iterator = values.iter().skip(2);
+                let mut registers = vec![];
+                for _ in 0..count {
+                    registers.push(*iterator.next().unwrap());
+                }
+
+                // write multiple registers
+                /*
+                let range = AddressRange::try_from(start, count).unwrap();
+                let result = self.write_multiple_registers(WriteRegisters::new(range, registers.into_iter()));
+                
+                match result {
+                    Ok(_) => Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), vec![start, count])),
+                    Err(exception) => Err(exception),
+                }
+                */
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), vec![start, count]))
+            },
+            0x41 => {
+                // increment each CFC value by 1 and return the result
+                // Create a new vector to hold the incremented values
+                let incremented_data = values.iter().map(|&val| val + 1).collect();
+
+                // Return a new CustomFunctionCode with the incremented data
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), incremented_data))
+            },
+            0x42 => {
+                // add a new value to the buffer and return the result
+                // Create a new vector to hold the incremented values
+                let extended_data = {
+                    let mut extended_data = values.iter().map(|val| *val).collect::<Vec<u16>>();
+                    extended_data.push(0xC0DE);
+                    extended_data
+                };
+
+                // Return a new CustomFunctionCode with the incremented data
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), extended_data))
+            },
+            0x43 => {
+                // remove the first value from the buffer and return the result
+                // Create a new vector to hold the incremented values
+                let truncated_data = {
+                    let mut truncated_data = values.iter().map(|val| *val).collect::<Vec<u16>>();
+                    truncated_data.pop();
+                    truncated_data
+                };
+
+                // Return a new CustomFunctionCode with the incremented data
+                Ok(CustomFunctionCode::new(values.function_code(), values.byte_count_in(), values.byte_count_out(), truncated_data))
+            },
+            _ => Err(ExceptionCode::IllegalFunction),
+        }
+    }
+
     fn write_single_register(&mut self, value: Indexed<u16>) -> Result<(), ExceptionCode> {
         tracing::info!(
             "write single register, index: {} value: {}",
@@ -167,7 +342,7 @@ async fn run_tcp() -> Result<(), Box<dyn std::error::Error>> {
     // ANCHOR: tcp_server_create
     let server = rodbus::server::spawn_tcp_server_task(
         1,
-        "127.0.0.1:10502".parse()?,
+        "127.0.0.1:11502".parse()?,
         map,
         AddressFilter::Any,
         DecodeLevel::default(),
@@ -206,7 +381,7 @@ async fn run_tls(tls_config: TlsServerConfig) -> Result<(), Box<dyn std::error::
     // ANCHOR: tls_server_create
     let server = rodbus::server::spawn_tls_server_task_with_authz(
         1,
-        "127.0.0.1:10802".parse()?,
+        "127.0.0.1:11802".parse()?,
         map,
         ReadOnlyAuthorizationHandler::create(),
         tls_config,
