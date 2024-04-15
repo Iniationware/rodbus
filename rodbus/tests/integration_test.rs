@@ -264,8 +264,18 @@ async fn test_requests_and_responses() {
     // ANCHOR: custom_function_code
     // Test the implemented valid test handlers 65, 66, 67
     assert_eq!(
-        channel.send_custom_function_code(params, CustomFunctionCode::new(0x41, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
-        Ok(CustomFunctionCode::new(0x41, 4, 4, vec![0xC0DF, 0xCAFF, 0xC0DF, 0xCAFF]))
+        channel
+            .send_custom_function_code(
+                params,
+                CustomFunctionCode::new(0x41, 4, 4, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])
+            )
+            .await,
+        Ok(CustomFunctionCode::new(
+            0x41,
+            4,
+            4,
+            vec![0xC0DF, 0xCAFF, 0xC0DF, 0xCAFF]
+        ))
     );
     assert_eq!(
         channel.send_custom_function_code(params, CustomFunctionCode::new(0x42, 4, 5, vec![0xC0DE, 0xCAFE, 0xC0DE, 0xCAFE])).await,
